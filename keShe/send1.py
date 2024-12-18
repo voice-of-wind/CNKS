@@ -41,7 +41,7 @@ def get_file_type(file_path):
 def send_file_tcp(file_paths, host, port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((host, port))
-
+        buffer_size = 1024*8  # 缓冲区大小
         # 遍历文件列表 依次发送文件
         for file_path in file_paths:
             file_name = os.path.basename(file_path)
@@ -57,7 +57,7 @@ def send_file_tcp(file_paths, host, port):
             start_time = time.time()
             speed = 0
             with open(file_path, 'rb') as f:
-                while (chunk := f.read(1024)):
+                while (chunk := f.read(buffer_size)):
                     s.sendall(chunk)
                     sent_size += len(chunk)
                     progress = (sent_size / file_size) * 100
@@ -251,7 +251,7 @@ frame_protocol_send.pack(pady=10)
 
 label_protocol = tk.Label(frame_protocol_send, text="选择协议:")
 label_protocol.pack(side=tk.LEFT)
-protocol_var = tk.StringVar(value="UDP")
+protocol_var = tk.StringVar(value="TCP_multiThread")
 protocol_menu = ttk.Combobox(frame_protocol_send, textvariable=protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
 protocol_menu.pack(side=tk.LEFT, padx=5)
 

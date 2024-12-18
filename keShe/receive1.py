@@ -8,9 +8,7 @@ import time
 import threading
 
 # Todo
-# 1.优化发送端界面
 # 2.多线程TCP完成
-# 3.检验TCP发送是否可用
 # 4.按照要求进行绘图
 # 5.修改进度百分比不准的问题
 # 6.测试其他类型文件是否可以传输
@@ -81,12 +79,13 @@ def receive_file_tcp(host, port):
         print(f"连接来自: {addr}")
         save_paths = []
         file_names = []
+        buffer_size = 1024 * 8
         vaildData = ""
         remainData = False
         with conn:
             while True:
                 if not remainData:
-                    data = conn.recv(1024)
+                    data = conn.recv(buffer_size)
                     # data = data.decode('utf-8')
                     # 不要对数据进行utf-8解码，因为数据可能包含非utf-8字符 所以切割时 以及保存时 都不要解码
                     remainData = False
@@ -100,6 +99,7 @@ def receive_file_tcp(host, port):
                 if fileType != -1:
                     # 这里的vaild都是字节流
                     vaildData = data.split(beginFs[fileType])[1]
+                    print(data)
                     datas = vaildData.split(splitF,3)
                     file_name = datas[1].decode('utf-8')
                     print(f"当前接收文件: {file_name}")
@@ -124,7 +124,7 @@ def receive_file_tcp(host, port):
                         received_size += len(fileData)
                         while True:
                             # 如果文件头后面跟的有数据
-                            chunk = conn.recv(1024)
+                            chunk = conn.recv(buffer_size)
                             if endF in chunk:
                                 remains = chunk.split(endF)[0]
                                 f.write(remains)
@@ -306,6 +306,8 @@ def start_receiving():
     host = entry_host_receive.get()
     port = int(entry_port_receive.get())
     protocol = protocol_var.get()
+    print(protocol)
+    save_paths = []
     if protocol == "TCP":
         save_paths, file_names = receive_file_tcp(host, port)
     elif protocol == "UDP":
@@ -313,6 +315,7 @@ def start_receiving():
     elif protocol == "TCP_multiThread":
         num_threads = int(entry_threads.get())
         threading.Thread(target=receive_file_tcp_multithread, args=(host, port, num_threads)).start()
+
     if save_paths:
         for i in range(len(save_paths)):
             listbox_received_files.insert(tk.END, file_names[i])
@@ -391,7 +394,7 @@ frame_protocol_threads.pack(pady=10)
 
 label_protocol = tk.Label(frame_protocol_threads, text="选择协议:")
 label_protocol.pack(side=tk.LEFT)
-protocol_var = tk.StringVar(value="UDP")
+protocol_var = tk.StringVar(value="TCP_multiThread")
 protocol_menu = ttk.Combobox(frame_protocol_threads, textvariable=protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
 protocol_menu.pack(side=tk.LEFT, padx=5)
 
