@@ -237,70 +237,95 @@ def receive_file_udp(host, port):
     print("接收完成")
     return save_paths, file_names
 
+# 有进程 如果数据为空 是不是就能说明所有文件都接收完毕了？
+# 发送端发送一个单文件结束符 
+# 当接收端的有一个子进程接收到这个符号时 就说明这个文件接收完毕 该子进程即可发送ACK给发送端 
+# 如果发送端收到ACK则发送下一个文件的头部信息
+# 如果接收端收到的是allEnd 则说明所有文件接收完毕
+# 对应子进程在其他子进程接收完毕后阻塞所有进程
 
-def receive_file_tcp_multithread(host, port, num_threads=4):
-    def receive_chunk(conn, start, end, thread_id):
-        nonlocal received_size, file_size, start_time
-        speed = 0
-        with open(save_path, 'r+b') as f:
-            f.seek(start)
-            while start < end:
-                chunk_size = min(1024, end - start)
-                chunk = conn.recv(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                start += len(chunk)
+
+# 如果数据里有结束标识符 则告诉发送方可以发送下一个文件
+
+# 如果数据里有全部文件发送完成的标识符 
+def receive_file_tcp_multithread(host, port, num_threads=1):
+    buffer_size = 1024 * 4
+    
+    def receive_chunk(conn, lock):
+        start = 0
+        while True:
+            # 每次接收一个数据块，大小为缓冲区大小
+            header = conn.recv(buffer_size)
+            # if not header:
+            #     print("接收数据为空")
+            #     break
+            # 如果接收到的数据为空，则退出循环
+
+
+            # 判断是否是分割符（splitF），如果是，解析文件信息
+            if splitF in header:
+                header, chunk = header.split(splitF, 1)
+                file_id, thread_id, chunk_start = header.decode('utf-8').split(':')
+                chunk_start = int(chunk_start)
+                
+                # 解析文件类型并确定保存路径
+                fileType = get_file_type_str(file_id)
+                # uuid1 = str(uuid.uuid1())
+                save_path = f"../receive/{fileTypes[fileType]}/{file_id}"
+                # 不存在则创建目录
+                dir_path = os.path.dirname(save_path)
+                if not os.path.exists(dir_path):
+                    print("创建目录")
+                    os.makedirs(dir_path)
+
+                # 使用锁确保文件写入是互斥的
                 with lock:
-                    received_size += len(chunk)
-                    progress = (received_size / file_size) * 100
-                    progress_var.set(progress)
-                    elapsed_time = time.time() - start_time
-                    if elapsed_time > 0:
-                        speed = received_size / elapsed_time / 1024  # KB/s
-                    speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
-                    root.update_idletasks()
+                    # 如果文件不存在，则创建文件
+                    if not os.path.exists(save_path):
+                        with open(save_path, 'wb') as f:
+                            pass
+                    with open(save_path, 'r+b') as f:
+                        f.seek(chunk_start)  # 移动到指定位置写入
+                        f.write(chunk)  # 写入文件块
+                        start += len(chunk)
 
+
+
+            # 判断是否接收到文件结束标识符
+            if b'###END###' in header:
+                print(f"接收到文件结束符")
+                conn.send(b'ACK')  # 发送ACK给发送端确认文件接收完毕
+
+            # 判断是否接收到所有文件结束标识符
+            if b'AllEnd' in header:
+                print("接收到所有文件结束符")
+                conn.send(b'ACK')  # 发送ACK给发送端确认所有文件接收完毕
+                break  # 退出循环，所有文件传输完毕
+
+    # 创建并绑定服务器套接字
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen()
         print("等待连接...")
-        conn, addr = s.accept()
-        print(f"连接来自: {addr}")
-        data = conn.recv(1024)
-        fileType = get_file_type(data)
-        if fileType != -1:
-            vaildData = data.split(beginFs[fileType])[1]
-            datas = vaildData.split(splitF, 3)
-            file_name = datas[1].decode('utf-8')
-            file_size = int(datas[2].decode('utf-8'))
-            print(f"当前接收文件: {file_name}")
-            unique_id = uuid.uuid4()
-            file_name = str(unique_id) + "-" + file_name
-            save_path = os.path.join(f"../receive/{fileTypes[fileType]}", file_name)
-            dir_path = os.path.dirname(save_path)
-            if not os.path.exists(dir_path):
-                print("创建目录")
-                os.makedirs(dir_path)
-            with open(save_path, 'wb') as f:
-                f.truncate(file_size)
-            received_size = 0
-            start_time = time.time()
-            chunk_size = file_size // num_threads
-            lock = threading.Lock()
-            threads = []
-            for i in range(num_threads):
-                start = i * chunk_size
-                end = file_size if i == num_threads - 1 else (i + 1) * chunk_size
-                thread = threading.Thread(target=receive_chunk, args=(conn, start, end, i))
-                threads.append(thread)
-                thread.start()
-            for thread in threads:
-                thread.join()
-            print(f"{file_name} 文件接收完成")
-        else:
-            print("未识别的文件类型")
-    print("接收完成")
+
+        lock = threading.Lock()  # 创建锁，确保文件写入是互斥的
+        threads = []
+
+        # 接收每个线程的连接并启动接收线程
+        for i in range(num_threads):
+            conn, addr = s.accept()
+            print(f"线程 {i} 连接来自: {addr}")
+            # 每个连接启动一个新的线程来处理文件接收
+            thread = threading.Thread(target=receive_chunk, args=(conn, lock))
+            threads.append(thread)
+            thread.start()
+
+        # 等待所有线程执行完成
+        for thread in threads:
+            thread.join()
+
+        print("接收完成")
+
 
 def start_receiving():
     host = entry_host_receive.get()
@@ -402,7 +427,7 @@ label_threads = tk.Label(frame_protocol_threads, text="线程数量:")
 label_threads.pack(side=tk.LEFT)
 entry_threads = tk.Entry(frame_protocol_threads, width=10)
 entry_threads.pack(side=tk.LEFT, padx=5)
-entry_threads.insert(0, "4")  # 设置默认值
+entry_threads.insert(0, "1")  # 设置默认值
 
 button_receive = tk.Button(frame_protocol_threads, text="开始接收", command=start_receiving)
 button_receive.pack(side=tk.LEFT, padx=5)
