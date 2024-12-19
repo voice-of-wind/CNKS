@@ -5,6 +5,7 @@ from tkinter import filedialog, ttk
 import hashlib
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageTk  
 
 # 规定一个标识符用来区分发送文件的开头
@@ -19,6 +20,7 @@ splitF = b"#####-----#####"
 endF = b"#####*****end_of_file*****#####"
 allEnd = b"#####*****all_end*****#####"
 fileTypes = ["img", "audio", "video", "file", "office", "zip"]
+BUFFER_SIZE = 4 * 1024  # 设置缓冲区大小为4KB
 
 # 根据文件后缀确定文件类型从而发送对应标识符
 def get_file_type(file_path):
@@ -145,88 +147,50 @@ def send_file_udp(file_paths, host, port):
 # 定义一个函数指定文件的起始 结束部分
 
 
-
-
-
+# 发送文件的函数
+# 发送文件的函数
 def send_file_tcp_multithread(file_paths, host, port, num_threads=4):
     buffer_size = 4 * 1024  # 设置缓冲区大小为 4*1024
 
-     
-    def send_chunk(file_path, host, port, start, end, thread_id, file_id,s):
-        # 建立四个进程每个进程用来发送一个部分  每个部分划分成固定的数据块进行发送
-        # 数据块{file_id}:{thread_id}:{start}:{start+chunk_size}+splitF+数据
-
-
-        s.connect((host, port))
-        # 发送文件ID、线程ID和数据范围
-        print(f"发送进程 开始{start} 结束{end}")
+    def send_chunk(file_path, host, port, start, end, thread_id, file_id, conn):
         with open(file_path, 'rb') as f:
             f.seek(start)
             while start < end:
-
-                headers = f"{file_id}:{thread_id}:{start}"
-
-
-                chunk_size = min(buffer_size - len(f"{file_id}:{thread_id}:{start}".encode('utf-8')+splitF) , end - start)
-
+                chunk_size = min(buffer_size - len(f"{file_id}:{thread_id}:{start}:{start+buffer_size}".encode('utf-8')) - len(splitF), end - start)
                 chunk = f.read(chunk_size)
-
-                # 发送数据块标识符和数据块
-                dataGrim = f"{file_id}:{thread_id}:{start}".encode('utf-8') + splitF + chunk
-                s.sendall(dataGrim)
+                conn.sendall(f"{file_id}:{thread_id}:{start}:{start+chunk_size}".encode('utf-8') + splitF + chunk)
                 start += chunk_size
-                # with lock:
-                #     sent_size[0] += len(chunk)
-                #     progress = (sent_size[0] / file_size) * 100
-                #     progress_var.set(progress)
-                #     elapsed_time = time.time() - start_time
-                #     speed = sent_size[0] / elapsed_time / 1024  # KB/s
-                #     speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
-                #     root.update_idletasks()
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((host, port))
-        for file_path in file_paths:
-            file_size = os.path.getsize(file_path)
-            sent_size = [0]
-            start_time = time.time()
-            # 取整
-            chunk_size = file_size // num_threads
-            lock = threading.Lock()
-            threads = []
-            file_id = os.path.basename(file_path)  # 使用文件名作为文件唯一标识符
-            print(f"开始发送文件 {file_id}  文件大小{file_size}")
+    for file_path in file_paths:
+        file_size = os.path.getsize(file_path)
+        chunk_size = file_size // num_threads
+        threads = []
+        file_id = os.path.basename(file_path)  # 使用文件名作为文件唯一标识符
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((host, port))
             for i in range(num_threads):
                 start = i * chunk_size
-                if i == num_threads - 1:
-                    end = file_size
-                else:
-                    end = start + chunk_size
-                print(f"刚划分完的数据块大start:{start} end:{end}")
-                thread = threading.Thread(target=send_chunk, args=(file_path, host, port, start, end, i, file_id,s))
+                end = file_size if i == num_threads - 1 else (i + 1) * chunk_size
+                thread = threading.Thread(target=send_chunk, args=(file_path, host, port, start, end, i, file_id, s))
                 threads.append(thread)
-                print(f"添加线程{i}")
                 thread.start()
 
+            # 等待所有线程发送完成
             for thread in threads:
-                print("22222")
                 thread.join()
 
             # 发送文件结束标志
-
-            print("发送文件标志位")
-            s.sendall(b"###END###")
+            s.sendall(f"{file_id}:END".encode('utf-8'))
             ack = s.recv(1024).decode('utf-8')
             if ack == "ACK":
                 print(f"{file_id} 文件发送完成")
 
-
-        # 发送所有文件结束标志
-        s.sendall("AllEnd".encode('utf-8'))
-        ack = s.recv(1024).decode('utf-8')
-        if ack == "ACK":
-            print("所有文件发送完成")
-    
+            # 等待接收端确认准备好接收下一个文件
+            ack = s.recv(1024).decode('utf-8')
+            if ack != "READY":
+                print("接收端没有准备好接收下一个文件，停止传输")
+                break
 
 def select_files():
     file_paths = filedialog.askopenfilenames()
