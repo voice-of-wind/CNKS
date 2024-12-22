@@ -1,7 +1,7 @@
 import os
 
-file1 = "../receive/img/1.png"
-file2 = "../res/1.png"
+file1 = "../receive/img/2.png"
+file2 = "../res/2.png"
 
 size1 = os.path.getsize(file1)
 size2 = os.path.getsize(file2)
@@ -26,7 +26,10 @@ def compare_binary(file1, file2):
     for i in range(min_len):
         if data1[i] != data2[i]:
             num+=1
-            print(f"差异位置: 第 {i} 字节, 文件1={data1[i]}, 文件2={data2[i]}")
+            # print(f"差异位置: 第 {i} 字节, 文件1={data1[i]}, 文件2={data2[i]}")
+            bin1 =   hex(data1[i])[2:]
+            bin2 =   hex(data2[i])[2:]
+            print(f"差异位置: 第 {i} 字节, 文件1={bin1}, 文件2={bin2}")
 
     # 检查是否有额外数据丢失
     if len(data1) != len(data2):

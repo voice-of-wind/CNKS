@@ -8,12 +8,12 @@ import time
 import threading
 
 # Todo
-# 2.多线程TCP完成
+# 修改udp部分
 # 4.按照要求进行绘图
-# 5.修改进度百分比不准的问题
+# 5.修改进度udp 和 tcp 单线程百分比不准的问题
 # 6.测试其他类型文件是否可以传输
 
-
+THREADS = 6
 
 
 # region规定一个标识符用来区分发送文件的开头
@@ -79,7 +79,7 @@ def receive_file_tcp(host, port):
         print(f"连接来自: {addr}")
         save_paths = []
         file_names = []
-        buffer_size = 1024 * 8
+        buffer_size = 1024 * 8 * 2
         vaildData = ""
         remainData = False
         with conn:
@@ -157,26 +157,29 @@ def receive_file_tcp(host, port):
 
 # 接收文件的函数（UDP）
 def receive_file_udp(host, port):
-    udpRecSize = int(1024*8)
+    udpRecSize = int(1024*4*8)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.bind((host, port))
         print("等待连接...")
         save_paths = []
         file_names = []
+        # 表示接收的块数
 
         while True:
             data, addr = s.recvfrom(udpRecSize)
             received_size = 0
             start_time = time.time()
-
-            # 数据的后32位是利用前面内容生成的MD5校验和
-            if hashlib.md5(data[:-32]).hexdigest().encode('utf-8') == data[-32:]:
+            nowIndex = 0
+            # 数据的后32位是利用前面内容生成的MD5校验和 先要保证数据没问题 在保证块数对应
+            if hashlib.md5(data[:-32]+str(nowIndex).encode('utf-8')).hexdigest().encode('utf-8') == data[-32:]:
                 s.sendto(b'ACK', addr)
+                nowIndex+=1
             else:
-                print("校验和错误，丢弃数据包")
+                print(f"校验和错误，丢弃数据包 当前块数{nowIndex}")
                 s.sendto(b'NACK', addr)
 
             if allEnd in data:
+                print("allEnd in data")
                 break
             # 保证每次开头必须要能传输没问题
             print(data)
@@ -201,22 +204,24 @@ def receive_file_udp(host, port):
                 with open(save_path, 'wb') as f:
                     filedata, checksum = fileData[:-32], fileData[-32:]
                     f.write(filedata)
-
+                    received_size += len(filedata)
                     while True:
-                        chunk, addr = s.recvfrom(udpRecSize)
-                        data, checksum = chunk[:-32], chunk[-32:]
-                        if hashlib.md5(data).hexdigest().encode('utf-8') == checksum:
-                            s.sendto(b'ACK', addr)
-                        else:
-                            print("校验和错误，丢弃数据包NACK")
-                            s.sendto(b'NACK', addr)
+                        while True:
+                            chunk, addr = s.recvfrom(udpRecSize)
+                            data, checksum = chunk[:-32], chunk[-32:]
+                            if hashlib.md5(data+str(nowIndex).encode('utf-8')).hexdigest().encode('utf-8') == checksum:
+                                s.sendto(b'ACK', addr)
+                                nowIndex += 1
+                                break
+                            else:
+                                print(f"校验和错误，丢弃数据包NACK 当前块数{nowIndex}")
+                                s.sendto(b'NACK', addr)
 
                         if endF in chunk:
                             print(f"最后一段数据: {chunk}")
                             break
                         else:
-                            s.sendto(b'ACK', addr)
-                            received_size += len(filedata)
+                            received_size += len(data)
                             progress = (received_size / file_size) * 100
                             progress_var.set(progress)
                             progress_label.config(text=f"{progress:.2f}%")
@@ -257,50 +262,48 @@ flag_lock = threading.Lock()
 def set_endflag(value):
     global endflag
     with flag_lock:
-        if value == 0:
-            endflag = 0
-        else:
-            endflag += value
-
-max_send_port=0
+        endflag = value
 
 
+
+received_size = 0
+start_time1 = 0
+file_size1 = 0
 # 接收单个文件块
-def receive_chunk(conn, lock,prefix,thread_id,max_send_port):
-    buffer_size = 1024 * 4  # 缓冲区大小
-
-    remote_host, remote_port = conn.getpeername()
+def receive_chunk(conn, lock,prefix):
+    buffer_size = 1024 * 4 * 16  # 缓冲区大小
+    remote_port = conn.getpeername()[1]
     global endflag
-    # print(conn)
-    # print(endflag)
+    global received_size, file_size1, start_time1  # 添加全局变量
     while True:
         # try:
             header = conn.recv(buffer_size)
-            print(f"id:{thread_id} {header} endflag:{endflag} 长度{len(header)} remote_port {remote_port} max_port{max_send_port}")
+            if header == b'':
+                break
+            if b'AllEnd' in header:
+                set_endflag(-1)
+                break
             # 判断是否是分割符（splitF），如果是，解析文件信息
             if b"::" in header:
                 header, chunk = header.split(b"::", 1)
                 # 如果header中有结尾标识符在则再根据此拆分一次
-                if b'###END###' in chunk:
-                    chunk = chunk.split(b'###END###')[0]
-                    # 每次加一
-                    set_endflag(1)
-                    print(f"执行了endflag+1:{endflag}")
-                if b'AllEnd' in chunk:
-                    chunk = chunk.split(b'AllEnd')[0]
-                    # 每次加二
-                    set_endflag(2)
+                # 如果解码错误 就捕获
+                try:
+                    file_id, end, chunk_start,file_size = header.decode('utf-8').split(':')
+                except:
+                    print("解码错误")
+                    print(header)
 
-                file_id, is_final, chunk_start = header.decode('utf-8').split(':')
-                is_final = int(is_final)
+
+                file_size1 = int(file_size)
+                end = int(end)
                 chunk_start = int(chunk_start)
                 fileType = get_file_type_str(file_id)
                 # 解析文件类型并确定保存路径
                 save_path = f"../receive/{fileTypes[fileType]}/{prefix}-{file_id}"
+
                 dir_path = os.path.dirname(save_path)
-                # print(save_path)
-
-
+                write_size = len(chunk)
                 # 使用锁确保文件写入是互斥的
                 with lock:
                     if not os.path.exists(dir_path):
@@ -309,53 +312,41 @@ def receive_chunk(conn, lock,prefix,thread_id,max_send_port):
                     if not os.path.exists(save_path):
                         with open(save_path, 'wb') as f:
                             pass
-
                     with open(save_path, 'r+b') as f:
                         f.seek(chunk_start)  # 移动到指定位置写入
                         f.write(chunk)  # 写入文件块
 
-            # 如果是最后一个
-
-            if endflag == 1 and len(header) == 0 and remote_port == max_send_port:
-                # 只要是所有数据接收完了 所有工作线程都会进入这里
-
-                print(f"文件{file_id}接收完成")
-                print(f"接收到文件结束符")
-
-                set_endflag(0)
-                # 可能发送的信息给到的不是负责文件最后部分的进程导致 不能发送下一个文件
-                # 所以这里要发送给发送端请求
-                if is_final == 1:
-                    print("发送ACK")
+                # # 更新进度和速率显示
+                # with lock:
+                received_size += write_size
+                progress = (received_size / file_size1) * 100
+                progress_var.set(progress)
+                elapsed_time = time.time() - start_time1
+                if elapsed_time > 0:
+                    speed = received_size / elapsed_time / 1024  # KB/s
+                speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
+                progress_label.config(text=f"{progress:.2f}%")
+                root.update_idletasks()
+               
+                # 如果chunk_start + write_size == 当前的end大小说明发送端该进程发送完毕  发送端先完成其实也就没有必要给接收端接收这个一个文件结束的标识了
+                if chunk_start + write_size == end:
+                    # 如果是最后一个文件块
+                    # 发送ACK给发送端
                     conn.send(b'ACK')
-                print("发送ACK")
-            
-            if endflag == 2 and len(header) ==0:
-                print("接收到所有文件结束符")
-                set_endflag(-1)
-                conn.send(b'ACK')
-                break
+                    print(f"发送ACK到端口{remote_port}")
+                    break
 
-
-            # 判断是否接收到文件结束标识符
-            if b'###END###' in header:
-                set_endflag(1)
-                print(f"执行了endflag+1:{endflag}")
-
-            # 判断是否接收到所有文件结束标识符
-            if b'AllEnd' in header:
-                set_endflag(2)
-                print("接收到所有文件结束符")
 
 
 
 # 接收端主函数
-def receive_file_tcp_multithread(host, port, num_threads=1):
-    buffer_size = 1024 * 4
+def receive_file_tcp_multithread(host, port, num_threads=THREADS):
     lock = threading.Lock()  # 创建锁，确保文件写入是互斥的
     threads = []
     global endflag
     global max_send_port
+    global received_size
+    global start_time1
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((host, port))
@@ -364,19 +355,15 @@ def receive_file_tcp_multithread(host, port, num_threads=1):
             # 启动多个接收文件块的线程
             prifix = str(uuid.uuid4())
             conns = []
+
             for i in range(num_threads):
                 conn, addr = s.accept()
                 conns.append(conn)
-                # 获取发送端最大端口号
-                remote_host, remote_port = conn.getpeername()
-                max_send_port = max(max_send_port, remote_port)
-                print(f"连接来自: {addr}  {conn}")
-                # 每个线程将处理连接的一个独立部分
 
-
+            start_time1 = time.time()
             for i in range(num_threads):
                 conn = conns[i]
-                thread = threading.Thread(target=receive_chunk, args=(conn, lock,prifix,i,max_send_port))
+                thread = threading.Thread(target=receive_chunk, args=(conn, lock,prifix))
                 threads.append(thread)
                 thread.start()
 
@@ -385,17 +372,20 @@ def receive_file_tcp_multithread(host, port, num_threads=1):
                 print(f"启动线程 {i}")
                 thread.join()
 
-
-            print("完成一个文件接收")
-            if endflag == -1:
-                print("所有文件接收完成")
-                break
             # 每个文件结束后 清空线程列表 同时 endflag也要清零
             threads.clear()
-            max_send_port = 0
             conns.clear()
+            received_size = 0
+            start_time1 = 0
+            print("完成一个文件接收")
 
-        # 表示一个文件接收完毕
+            if endflag == -1:
+                print("所有文件接收完成")
+                set_endflag(0)
+                return
+
+
+
 
 
 
@@ -413,6 +403,8 @@ def start_receiving():
     elif protocol == "TCP_multiThread":
         num_threads = int(entry_threads.get())
         threading.Thread(target=receive_file_tcp_multithread, args=(host, port, num_threads)).start()
+        # receive_file_tcp_multithread(host, port, num_threads)
+        # 或是启动一个等待完成的线程 在这里将endflag 从-1-> 0
 
     if save_paths:
         for i in range(len(save_paths)):
@@ -492,7 +484,7 @@ frame_protocol_threads.pack(pady=10)
 
 label_protocol = tk.Label(frame_protocol_threads, text="选择协议:")
 label_protocol.pack(side=tk.LEFT)
-protocol_var = tk.StringVar(value="TCP_multiThread")
+protocol_var = tk.StringVar(value="UDP")
 protocol_menu = ttk.Combobox(frame_protocol_threads, textvariable=protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
 protocol_menu.pack(side=tk.LEFT, padx=5)
 
@@ -500,7 +492,7 @@ label_threads = tk.Label(frame_protocol_threads, text="线程数量:")
 label_threads.pack(side=tk.LEFT)
 entry_threads = tk.Entry(frame_protocol_threads, width=10)
 entry_threads.pack(side=tk.LEFT, padx=5)
-entry_threads.insert(0, "3")  # 设置默认值
+entry_threads.insert(0, str(THREADS))  # 设置默认值
 
 button_receive = tk.Button(frame_protocol_threads, text="开始接收", command=start_receiving)
 button_receive.pack(side=tk.LEFT, padx=5)
