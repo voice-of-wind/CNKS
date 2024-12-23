@@ -154,7 +154,7 @@ def receive_file_tcp(host, port):
                     break
     print("接收完成")
     return save_paths, file_names
-
+    
 # 接收文件的函数（UDP）
 def receive_file_udp(host, port):
     udpRecSize = int(1024*4*8)

@@ -173,7 +173,6 @@ def send_chunk(file_path, host, port, start, end, thread_num, file_id,file_size)
                 data = headers + b"::" + chunk
                 s.sendall(data)
                 start += chunk_size
-
                 # 更新进度和速率显示
                 sent_size += len(chunk)
                 progress = (sent_size / file_size) * 100
