@@ -6,9 +6,12 @@ import uuid
 import hashlib
 import time
 import threading
+import queue
+from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 
 # Todo
 # 修改udp部分
+# 1.改成线程启动函数 改成以类的形式 合并成一个文件收发器 提供文件校验功能
 # 4.按照要求进行绘图
 # 5.修改进度udp 和 tcp 单线程百分比不准的问题
 # 6.测试其他类型文件是否可以传输
@@ -29,7 +32,15 @@ endF = b"#####*****end_of_file*****#####"
 allEnd = b"#####*****all_end*****#####"
 fileTypes = ["img", "audio", "video", "file", "office", "zip"]
 beginFs = [beginImgF, beginAudioF, beginVideoF, beginF, beginOfficeF, beginZipF]
+
+BUFFER_SIZE = 4 * 1024  # 设置缓冲区大小为4KB
+LOCK = threading.Lock()  # 全局线程锁
+
+res_file_names = []
+res_save_paths = []
+
 #endregion
+
 
 # region获取文件类型 第一个是根据文件开始符获取文件类型编号 第二个是根据文件后缀名获取文件类型编号0:img 1:audio 2:video 3:file 4:office 5:zip
 
@@ -77,11 +88,10 @@ def receive_file_tcp(host, port):
         print("等待连接...")
         conn, addr = s.accept()
         print(f"连接来自: {addr}")
-        save_paths = []
-        file_names = []
         buffer_size = 1024 * 8 * 2
         vaildData = ""
         remainData = False
+
         with conn:
             while True:
                 if not remainData:
@@ -98,14 +108,23 @@ def receive_file_tcp(host, port):
 
                 if fileType != -1:
                     # 这里的vaild都是字节流
+                    received_size = 0
+                    start_time = time.time()
                     vaildData = data.split(beginFs[fileType])[1]
                     print(data)
                     datas = vaildData.split(splitF,3)
                     file_name = datas[1].decode('utf-8')
                     print(f"当前接收文件: {file_name}")
                     unique_id = uuid.uuid4()
+
                     file_name = str(unique_id) + "-" + file_name
                     save_path = os.path.join(f"../receive/{fileTypes[fileType]}", file_name)
+
+                    if file_name not in res_file_names:
+                        res_file_names.append(file_name)
+                    if save_path not in res_save_paths:
+                        res_save_paths.append(save_path)
+
                     # 文件大小数据
                     file_size = int(datas[2].decode('utf-8'))
                     
@@ -116,8 +135,8 @@ def receive_file_tcp(host, port):
                         os.makedirs(dir_path)
                     # else:
                     fileType = -1
-                    received_size = 0
-                    start_time = time.time()
+
+
                     speed = 0
                     with open(save_path, 'wb') as f:
                         f.write(fileData)
@@ -127,7 +146,19 @@ def receive_file_tcp(host, port):
                             chunk = conn.recv(buffer_size)
                             if endF in chunk:
                                 remains = chunk.split(endF)[0]
+
+                                received_size+= len(remains)
+                                progress = (received_size / file_size) * 100
+                                progress_var.set(progress)
+                                progress_label.config(text=f"{progress:.2f}%")
+                                elapsed_time = time.time() - start_time
+                                if elapsed_time>0:
+                                    speed = received_size / elapsed_time / 1024  # KB/s
+                                speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
+                                root.update_idletasks()
+
                                 f.write(remains)
+
                                 if len(chunk.split(endF)) > 1 and len(chunk.split(endF)[1]) > 10:
                                     remainData = True
                                     # data就是要么为空 要么 为是下一个文件的文件头
@@ -138,6 +169,7 @@ def receive_file_tcp(host, port):
                                 break
                             else:
                                 f.write(chunk)
+                                ####
                                 received_size += len(chunk)
                                 progress = (received_size / file_size) * 100
                                 progress_var.set(progress)
@@ -147,13 +179,12 @@ def receive_file_tcp(host, port):
                                     speed = received_size / elapsed_time / 1024  # KB/s
                                 speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
                                 root.update_idletasks()
-                    save_paths.append(save_path)
-                    file_names.append(file_name)
+                                ####
                     print(f"{file_name} 文件接收完成")
                 else:
                     break
     print("接收完成")
-    return save_paths, file_names
+
     
 # 接收文件的函数（UDP）
 def receive_file_udp(host, port):
@@ -161,8 +192,6 @@ def receive_file_udp(host, port):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.bind((host, port))
         print("等待连接...")
-        save_paths = []
-        file_names = []
         # 表示接收的块数
 
         while True:
@@ -193,6 +222,10 @@ def receive_file_udp(host, port):
                 unique_id = uuid.uuid4()
                 file_name = str(unique_id) + "-" + file_name
                 save_path = os.path.join(f"../receive/{fileTypes[fileType]}", file_name)
+                if file_name not in res_file_names:
+                    res_file_names.append(file_name)
+                if save_path not in res_save_paths:
+                    res_save_paths.append(save_path)
                 file_size = int(datas[2])
                 fileData = datas[3]
                 dir_path = os.path.dirname(save_path)
@@ -233,14 +266,12 @@ def receive_file_udp(host, port):
                             root.update_idletasks()
                             f.write(data)
 
-                save_paths.append(save_path)
-                file_names.append(file_name)
                 print(f"{file_name} 文件接收完成")
             else:
                 print("未识别的文件类型")
                 break
     print("接收完成")
-    return save_paths, file_names
+
 
 # 有进程 如果数据为空 是不是就能说明所有文件都接收完毕了？
 # 发送端发送一个单文件结束符 
@@ -253,6 +284,7 @@ def receive_file_udp(host, port):
 # 如果数据里有结束标识符 则告诉发送方可以发送下一个文件
 
 # 如果数据里有全部文件发送完成的标识符 
+
 # 接收文件分块的函数
 # 接收文件分块的函数
 
@@ -388,6 +420,97 @@ def receive_file_tcp_multithread(host, port, num_threads=THREADS):
 
 
 
+def receive_file_tcp_multithread(host, port, num_threads=1):
+    buffer_size = 1024 * 4
+    lock = threading.Lock()  # 创建一个线程锁
+
+    def receive_chunk(conn, start, end, thread_id, file_id, result_queue):
+        nonlocal received_size, file_size, start_time
+        with open(save_path, 'r+b') as f:
+            f.seek(start)
+            while start < end:
+                header = conn.recv(buffer_size)
+                if not header:
+                    print(f"线程 {thread_id} 接收到空数据，退出循环")
+                    break
+                if splitF in header:
+                    header, chunk = header.split(splitF, 1)
+                    file_id, thread_id, chunk_start, chunk_end = header.decode('utf-8').split(':')
+                    chunk_start, chunk_end = int(chunk_start), int(chunk_end)
+                    chunk_size = chunk_end - chunk_start
+                    chunk += conn.recv(chunk_size - len(chunk))
+                    with lock:  # 确保写文件操作是互斥的
+                        f.seek(chunk_start)
+                        f.write(chunk)
+                        start += len(chunk)
+                        received_size += len(chunk)
+                        progress = (received_size / file_size) * 100
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > 0:
+                            speed = received_size / elapsed_time / 1024  # KB/s
+                        speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
+                        root.update_idletasks()
+                elif b"END" in header:
+                    print(f"{file_id} 文件接收完成")
+                    conn.sendall(b"ACK")
+                    break
+        result_queue.put((thread_id, "done"))
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, port))
+        s.listen()
+        print("等待连接...")
+
+        while True:
+            conn, addr = s.accept()
+            print(f"连接来自: {addr}")
+            conn.settimeout(10)  # 设置超时时间为10秒
+
+            try:
+                # 接收文件信息
+                data = conn.recv(1024)
+                if b"END" in data:
+                    file_id = data.split(b":")[0].decode('utf-8')
+                    print(f"{file_id} 文件接收完成")
+                    conn.sendall(b"ACK")
+
+                # 解析文件信息
+                file_id, thread_id, start, end = data.split(b':')
+                file_id = file_id.decode('utf-8')
+                thread_id = thread_id.decode('utf-8')
+                start = int(start)
+                end = int(end)
+
+                file_name = file_id  # 使用文件ID作为文件名
+                file_size = end  # 使用结束位置作为文件大小
+                print(f"当前接收文件: {file_name}")
+                save_path = os.path.join(f"../receive", file_name)
+                dir_path = os.path.dirname(save_path)
+                if not os.path.exists(dir_path):
+                    os.makedirs(dir_path)
+                with open(save_path, 'wb') as f:
+                    f.truncate(file_size)
+                received_size = 0
+                start_time = time.time()
+                threads = []
+                result_queue = queue.Queue()  # 创建一个队列来存储线程的返回值
+
+                # 接收每个线程的连接并启动接收线程
+                for i in range(num_threads):
+                    thread = threading.Thread(target=receive_chunk, args=(conn, start, end, thread_id, file_id, result_queue))
+                    threads.append(thread)
+                    thread.start()
+
+                # 并行等待所有线程完成
+                for thread in threads:
+                    thread.join()
+
+                print(f"{file_name} 文件接收完成")
+                # 发送文件接收完成标志
+                conn.sendall(b"READY")  # 告知发送端准备好接收下一个文件
+            except Exception as e:
+                print(f"接收文件信息时发生异常: {e}")
+        print("接收完成")
 
 
 def start_receiving():
@@ -395,35 +518,35 @@ def start_receiving():
     port = int(entry_port_receive.get())
     protocol = protocol_var.get()
     print(protocol)
-    save_paths = []
+    global res_save_paths, res_file_names
     if protocol == "TCP":
-        save_paths, file_names = receive_file_tcp(host, port)
+        threading.Thread(target=receive_file_tcp, args=(host, port)).start()
     elif protocol == "UDP":
-        save_paths, file_names = receive_file_udp(host, port)
+        threading.Thread(target=receive_file_udp, args=(host, port)).start()
     elif protocol == "TCP_multiThread":
         num_threads = int(entry_threads.get())
         threading.Thread(target=receive_file_tcp_multithread, args=(host, port, num_threads)).start()
         # receive_file_tcp_multithread(host, port, num_threads)
         # 或是启动一个等待完成的线程 在这里将endflag 从-1-> 0
 
-    if save_paths:
-        for i in range(len(save_paths)):
-            listbox_received_files.insert(tk.END, file_names[i])
-            file_paths[file_names[i]] = save_paths[i]
+    if res_save_paths:
+        for i in range(len(res_save_paths)):
+            listbox_received_files.insert(tk.END, res_file_names[i])
+            file_paths[res_file_names[i]] = res_file_names[i]
             # 按文件类型分类显示
-            file_type = get_file_type_str(file_names[i])
+            file_type = get_file_type_str(res_file_names[i])
             if file_type == 0:
-                img_files.append(file_names[i])
+                img_files.append(res_file_names[i])
             elif file_type == 1:
-                audio_files.append(file_names[i])
+                audio_files.append(res_file_names[i])
             elif file_type == 2:
-                video_files.append(file_names[i])
+                video_files.append(res_file_names[i])
             elif file_type == 3:
-                text_files.append(file_names[i])
+                text_files.append(res_file_names[i])
             elif file_type == 4:
-                office_files.append(file_names[i])
+                office_files.append(res_file_names[i])
             elif file_type == 5:
-                zip_files.append(file_names[i])
+                zip_files.append(res_file_names[i])
         messagebox.showinfo("接收完成", f"文件接收完成")
 
 
