@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 # 小bug使用tcp协议 小文件传输放在中间导致下一个文件接收不到
 # 修改udp部分
 # 1.改成线程启动函数 改成以类的形式 合并成一个文件收发器 提供文件校验功能
-# 4.按照要求进行绘图
+# 4.按照要求进行��图
 # 5.修改进度udp 和 tcp 单线程百分比不准的问题
 # 6.测试其他类型文件是否可以传输
 
@@ -203,13 +203,7 @@ class FileReceiver:
 
                                     received_size += len(remains)
                                     progress = (received_size / file_size) * 100
-                                    self.ui.progress_var.set(progress)
-                                    self.ui.progress_label.config(text=f"{progress:.2f}%")
-                                    elapsed_time = time.time() - start_time
-                                    if elapsed_time > 0:
-                                        speed = received_size / elapsed_time / 1024  # KB/s
-                                    self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
-                                    root.update_idletasks()
+                                    self.ui.root.after(100, self.update_progress, progress, speed)
 
                                     f.write(remains)
 
@@ -224,17 +218,10 @@ class FileReceiver:
                                     f.write(chunk)
                                     received_size += len(chunk)
                                     progress = (received_size / file_size) * 100
-                                    self.ui.progress_var.set(progress)
-                                    self.ui.progress_label.config(text=f"{progress:.2f}%")
-                                    elapsed_time = time.time() - start_time
-                                    if elapsed_time > 0:
-                                        speed = received_size / elapsed_time / 1024  # KB/s
-                                    self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
-                                    root.update_idletasks()
+                                    self.ui.root.after(100, self.update_progress, progress, speed)
                         print(f"{file_name} 文件接收完成")
                         self.ui.progress_var.set(100)
                         self.ui.progress_label.config(text="100%")
-                        root.update_idletasks()
                     else:
                         break
         self.finish_event.set()
@@ -316,20 +303,12 @@ class FileReceiver:
                             else:
                                 received_size += len(data)
                                 progress = (received_size / file_size) * 100
-                                self.ui.progress_var.set(progress)
-                                self.ui.progress_label.config(text=f"{progress:.2f}%")
-                                elapsed_time = time.time() - start_time
-
-                                if elapsed_time > 0:
-                                    speed = received_size / elapsed_time / 1024  # KB/s
-                                self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
-                                root.update_idletasks()
+                                self.ui.root.after(100, self.update_progress, progress, speed)
                                 f.write(data)
 
                     print(f"{file_name} 文件接收完成")
                     self.ui.progress_var.set(100)
                     self.ui.progress_label.config(text="100%")
-                    root.update_idletasks()
                 else:
                     print("未识别的文件类型")
                     break
@@ -381,20 +360,16 @@ class FileReceiver:
 
                 self.received_size += write_size
                 progress = (self.received_size / self.file_size1) * 100
-                self.ui.progress_var.set(progress)
                 elapsed_time = time.time() - self.start_time1
+                speed = 0
                 if elapsed_time > 0:
                     speed = self.received_size / elapsed_time / 1024
-                self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
-                self.ui.progress_label.config(text=f"{progress:.2f}%")
-                root.update_idletasks()
+                self.ui.root.after(100, self.update_progress, progress, speed)
 
                 if chunk_start + write_size == end:
                     conn.send(b'ACK')
                     print(f"发送ACK到端口{remote_port}")
-                    self.ui.progress_var.set(100)
-                    self.ui.progress_label.config(text="100%")
-                    root.update_idletasks()
+                    self.ui.root.after(100, self.update_progress, 100, 0)
                     break
 
     def receive_file_tcp_multithread(self, host, port, num_threads=THREADS):
@@ -444,11 +419,12 @@ class FileReceiver:
     def wait_for_completion(self):
             # 等待子线程完成
             self.finish_event.wait()
-            # 计算本次文件传输速度
+            # 计���本次文件传输速度
             self.file_end_time = time.time()
             print("文件结束接收时间:", self.file_end_time)
             # 计算文件传输速度
             elapsed_time = self.file_end_time - self.file_start_time
+            speed = 0
             if elapsed_time > 0:
                 for i in range(len(self.file_sizes)):
                     self.cal_file_size += self.file_sizes[i]
@@ -541,8 +517,15 @@ class FileReceiver:
         self.ui.listbox_received_files.delete(0, tk.END)
         messagebox.showinfo("清空完成", f"文件列表清空完成")
 
+    def update_progress(self, progress, speed):
+        """更新进度和速度显示"""
+        self.ui.progress_var.set(progress)
+        self.ui.progress_label.config(text=f"{progress:.2f}%")
+        self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
+
 class FileReceiverUI:
     def __init__(self, root, file_receiver):
+        self.root = root  # 保存root引用
         self.file_receiver = file_receiver
         self.file_receiver.ui = self
 
@@ -553,8 +536,6 @@ class FileReceiverUI:
         self.office_files = []
         self.text_files = []
         self.zip_files = []
-
-        root.title("文件接收器")
 
         frame_host_port = tk.Frame(root)
         frame_host_port.pack(pady=10)
@@ -637,7 +618,14 @@ class FileReceiverUI:
         frame_progress.pack(pady=10)
 
         self.progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(frame_progress, variable=self.progress_var, maximum=100)
+        style = ttk.Style()
+        style.configure("green.Horizontal.TProgressbar", 
+                       background='green',
+                       troughcolor='#D3D3D3')
+        progress_bar = ttk.Progressbar(frame_progress, 
+                                     variable=self.progress_var,
+                                     maximum=100,
+                                     style="green.Horizontal.TProgressbar")
         progress_bar.pack(side=tk.LEFT, padx=5)
 
         self.progress_label = tk.Label(frame_progress, text="0%")

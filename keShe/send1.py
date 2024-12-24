@@ -59,7 +59,7 @@ class FileSender:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
             buffer_size = 1024*8 *2# 缓冲区大小
-            # 遍历文件列表 依次发送文件
+            # 遍历文��列表 依次发送文件
             for file_path in file_paths:
                 file_name = os.path.basename(file_path)
                 file_size = os.path.getsize(file_path)
@@ -81,10 +81,11 @@ class FileSender:
                         self.ui.progress_var.set(progress)
                         self.ui.progress_label.config(text=f"{progress:.2f}%")
                         elapsed_time = time.time() - start_time
+                        speed = 0
                         if elapsed_time > 0:
                             speed = sent_size / elapsed_time / 1024  # KB/s
                         self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
-                        root.update_idletasks()
+                        self.ui.root.after(100, self.update_progress, progress, speed)
 
                 # 发送文件结束标识符
                 s.sendall(endF)
@@ -92,7 +93,7 @@ class FileSender:
                 print(f"{file_name} 文件发送完成")
                 self.ui.progress_var.set(100)
                 self.ui.progress_label.config(text="100%")
-                root.update_idletasks()
+                self.ui.root.after(100, self.update_progress, progress, speed)
 
     def send_file_udp(self, file_paths, host, port):
         buffer_size1 = 1024*4*8  # 缓冲区大小
@@ -141,10 +142,11 @@ class FileSender:
                         self.ui.progress_var.set(progress)
                         self.ui.progress_label.config(text=f"{progress:.2f}%")
                         elapsed_time = time.time() - start_time
+                        speed = 0
                         if elapsed_time>0:
                             speed = sent_size / elapsed_time / 1024  # KB/s
                         self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
-                        root.update_idletasks()
+                        self.ui.root.after(100, self.update_progress, progress, speed)
 
                         buffer = b''
 
@@ -168,7 +170,7 @@ class FileSender:
         print("本次所有文件发送完成")
         self.ui.progress_var.set(100)
         self.ui.progress_label.config(text="100%")
-        root.update_idletasks()
+        self.ui.root.after(100, self.update_progress, progress, speed)
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
         buffer_size = 4 * 1024 * 8# 设置缓冲区大小
@@ -188,14 +190,11 @@ class FileSender:
                     # 更新进度和速率显示
                     self.sent_size += len(chunk)
                     progress = (self.sent_size / file_size) * 100
-                    self.ui.progress_var.set(progress)
                     elapsed_time = time.time() - self.start_time
                     speed = 0
                     if elapsed_time > 0:
                         speed = self.sent_size / elapsed_time / 1024  # KB/s
-                    self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
-                    self.ui.progress_label.config(text=f"{progress:.2f}%")
-                    root.update_idletasks()
+                    self.ui.root.after(100, self.update_progress, progress, speed)
 
             print("发送完成")
             ack = s.recv(1024)
@@ -207,7 +206,13 @@ class FileSender:
             print(f"文件{file_id}发送完成")
             self.ui.progress_var.set(100)
             self.ui.progress_label.config(text="100%")
-            root.update_idletasks()
+            self.ui.root.after(100, self.update_progress, progress, speed)
+
+    def update_progress(self, progress, speed):
+        """更新进度和速度显示"""
+        self.ui.progress_var.set(progress)
+        self.ui.progress_label.config(text=f"{progress:.2f}%")
+        self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
 
     def send_chunk_end(self, host, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -262,9 +267,11 @@ class FileSender:
         port = int(port_text)
         protocol = self.ui.protocol_var.get()
         if protocol == "TCP":
-            self.send_file_tcp(file_paths, host, port)
+            # self.send_file_tcp(file_paths, host, port)
+            threading.Thread(target=self.send_file_tcp, args=(file_paths, host, port)).start()
         elif protocol == "UDP":
-            self.send_file_udp(file_paths, host, port)
+            # self.send_file_udp(file_paths, host, port)
+            threading.Thread(target=self.send_file_udp, args=(file_paths, host, port)).start()
         elif protocol == "TCP_multiThread":
             num_threads = int(self.ui.entry_threads.get())
             thread = threading.Thread(target=self.send_file_tcp_multithread, args=(file_paths, host, port, num_threads))
@@ -273,10 +280,9 @@ class FileSender:
 
 class FileSenderUI:
     def __init__(self, root, file_sender):
+        self.root = root  # 保存root引用
         self.file_sender = file_sender
         self.file_sender.ui = self
-
-        root.title("文件发送器")
 
         frame_file = tk.Frame(root)
         frame_file.pack(pady=10)
