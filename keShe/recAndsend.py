@@ -107,7 +107,7 @@ class RecAndSend:
     def show_about(self):
         about_text = """
         文件收发器 v1.0
-        作者：你的名字
+        作者：陌水寒熙
         这是一个简单的文件发送和接收工具。
         """
         messagebox.showinfo("关于", about_text)

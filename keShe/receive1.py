@@ -17,8 +17,13 @@ from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 # 5.修改进度udp 和 tcp 单线程百分比不准的问题
 # 6.测试其他类型文件是否可以传输
 
-THREADS = 3
+# ["TCP", "UDP", "TCP_multiThread"]
+# 三种传输方式的基本buffer_size = 4*1024*8
 
+THREADS = 3
+default_protol = "TCP_multiThread"
+default_host = "127.0.0.1"
+default_port = "12345"
 
 # region规定一个标识符用来区分发送文件的开头
 beginImgF = b"#####*****img#####*****"
@@ -104,6 +109,11 @@ class FileReceiver:
         # 记录多个文件的大小
         self.file_sizes = []
 
+        self.lock = threading.Lock()
+        self.received_size = 0
+        self.start_time = time.time()
+        self.speed = 0
+
     def set_endflag(self, value):
         with self.flag_lock:
             self.endflag = value
@@ -142,13 +152,15 @@ class FileReceiver:
             return -1
 
     def receive_file_tcp(self, host, port):
+        speed_thread = threading.Thread(target=self.update_speed, daemon=True)
+        speed_thread.start()
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((host, port))
             s.listen()
             print("等待连接...")
             conn, addr = s.accept()
             print(f"连接来自: {addr}")
-            buffer_size = 1024 * 8 * 2
+            buffer_size = 1024 * 8 * 4
             vaildData = ""
             remainData = False
 
@@ -164,8 +176,10 @@ class FileReceiver:
                             break
 
                     if fileType != -1:
+                        with self.lock:
+                            self.received_size = 0
+                            self.start_time = time.time()
                         received_size = 0
-                        start_time = time.time()
                         vaildData = data.split(beginFs[fileType])[1]
                         print(data)
                         datas = vaildData.split(splitF, 3)
@@ -192,7 +206,6 @@ class FileReceiver:
                             os.makedirs(dir_path)
                         fileType = -1
 
-                        speed = 0
                         with open(save_path, 'wb') as f:
                             f.write(fileData)
                             received_size += len(fileData)
@@ -201,9 +214,11 @@ class FileReceiver:
                                 if endF in chunk:
                                     remains = chunk.split(endF)[0]
 
+                                    with self.lock:
+                                        self.received_size += len(remains)
                                     received_size += len(remains)
                                     progress = (received_size / file_size) * 100
-                                    self.ui.root.after(100, self.update_progress, progress, speed)
+                                    self.ui.root.after(100, self.update_progress, progress, self.speed)
 
                                     f.write(remains)
 
@@ -216,9 +231,11 @@ class FileReceiver:
                                     break
                                 else:
                                     f.write(chunk)
-                                    received_size += len(chunk)
-                                    progress = (received_size / file_size) * 100
-                                    self.ui.root.after(100, self.update_progress, progress, speed)
+                                    with self.lock:
+                                        self.received_size += len(chunk)
+
+                                    progress = (self.received_size / file_size) * 100
+                                    self.ui.root.after(100, self.update_progress, progress, self.speed)
                         print(f"{file_name} 文件接收完成")
                         self.ui.progress_var.set(100)
                         self.ui.progress_label.config(text="100%")
@@ -229,6 +246,8 @@ class FileReceiver:
 
     def receive_file_udp(self, host, port):
         udpRecSize = int(1024 * 4 * 8)
+        speed_thread = threading.Thread(target=self.update_speed, daemon=True)
+        speed_thread.start()
         # udpRecSize = int(1000)
         si = 0
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -260,6 +279,9 @@ class FileReceiver:
                 fileType = self.get_file_type(data)
                 print(f"当前文件类型: {fileType}")
                 if fileType != -1:
+                    with self.lock:
+                        self.received_size = 0
+                        self.start_time = time.time()
                     vaildData = data.split(beginFs[fileType])[1]
                     datas = vaildData.split(splitF, 3)
                     file_name = datas[1].decode('utf-8')
@@ -301,8 +323,8 @@ class FileReceiver:
                                 print(f"最后一段数据: {chunk}")
                                 break
                             else:
-                                received_size += len(data)
-                                progress = (received_size / file_size) * 100
+                                self.received_size += len(data)
+                                progress = (self.received_size / file_size) * 100
                                 self.ui.root.after(100, self.update_progress, progress, speed)
                                 f.write(data)
 
@@ -358,21 +380,21 @@ class FileReceiver:
                         f.seek(chunk_start)
                         f.write(chunk)
 
-                self.received_size += write_size
+                with self.lock:
+                    self.received_size += write_size
+
                 progress = (self.received_size / self.file_size1) * 100
-                elapsed_time = time.time() - self.start_time1
-                speed = 0
-                if elapsed_time > 0:
-                    speed = self.received_size / elapsed_time / 1024
-                self.ui.root.after(100, self.update_progress, progress, speed)
+                self.ui.root.after(100, self.update_progress, progress, self.speed)
 
                 if chunk_start + write_size == end:
                     conn.send(b'ACK')
                     print(f"发送ACK到端口{remote_port}")
-                    self.ui.root.after(100, self.update_progress, 100, 0)
+                    self.ui.root.after(100, self.update_progress, 100, self.speed)
                     break
 
     def receive_file_tcp_multithread(self, host, port, num_threads=THREADS):
+        speed_thread = threading.Thread(target=self.update_speed, daemon=True)
+        speed_thread.start()
         lock = threading.Lock()
         threads = []
         si = 0
@@ -393,7 +415,7 @@ class FileReceiver:
                     print("文件开始接收时间:", self.file_start_time)
                     si += 1
 
-                self.start_time1 = time.time()
+                self.start_time = time.time()
                 for i in range(num_threads):
                     conn = conns[i]
                     thread = threading.Thread(target=self.receive_chunk, args=(conn, lock, prifix))
@@ -407,7 +429,7 @@ class FileReceiver:
                 threads.clear()
                 conns.clear()
                 self.received_size = 0
-                self.start_time1 = 0
+                self.start_time = 0
                 print("完成一个文件接收")
 
                 if self.endflag == -1:
@@ -415,6 +437,16 @@ class FileReceiver:
                     self.set_endflag(0)
                     self.finish_event.set()
                     return
+
+    def update_speed(self):
+        while True:
+            with self.lock:
+                elapsed_time = time.time() - self.start_time
+                if elapsed_time > 0:
+                    self.speed = self.received_size / elapsed_time / 1024  # KB/s
+                else:
+                    self.speed = 0
+            time.sleep(1)
 
     def wait_for_completion(self):
             # 等待子线程完成
@@ -442,6 +474,8 @@ class FileReceiver:
             self.file_sizes.clear()
 
 
+            # 首先清空listbox_received_files
+            self.ui.listbox_received_files.delete(0, tk.END)
             # 子线程完成后执行的代码
             if self.res_file_names:
                 for i in range(len(self.res_file_names)):
@@ -461,6 +495,9 @@ class FileReceiver:
                     elif file_type == 5:
                         self.ui.zip_files.append(self.res_file_names[i])
                 messagebox.showinfo("接收完成", f"文件接收完成")
+
+            # 清除事件状态，重新进入等待
+            self.finish_event.clear()
 
     def start_receiving(self):
         host = self.ui.entry_host_receive.get()
@@ -482,7 +519,7 @@ class FileReceiver:
             receive_thread = threading.Thread(target=self.receive_file_tcp_multithread, args=(host, port, num_threads))
         receive_thread.start()
         threading.Thread(target=self.wait_for_completion).start()
-        # receive_thread.join()  # 等待子线程完成
+        # receive_thread.join()  # 等��子线程完成
 
 
 
@@ -521,7 +558,7 @@ class FileReceiver:
         """更新进度和速度显示"""
         self.ui.progress_var.set(progress)
         self.ui.progress_label.config(text=f"{progress:.2f}%")
-        self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
+        self.ui.speed_label.config(text=f"接收速率: {self.speed:.2f} KB/s")
 
 class FileReceiverUI:
     def __init__(self, root, file_receiver):
@@ -544,20 +581,20 @@ class FileReceiverUI:
         label_host_receive.pack(side=tk.LEFT)
         self.entry_host_receive = tk.Entry(frame_host_port, width=20)
         self.entry_host_receive.pack(side=tk.LEFT, padx=5)
-        self.entry_host_receive.insert(0, "127.0.0.1")
+        self.entry_host_receive.insert(0, default_host)
 
         label_port_receive = tk.Label(frame_host_port, text="端口号:")
         label_port_receive.pack(side=tk.LEFT)
         self.entry_port_receive = tk.Entry(frame_host_port, width=10)
         self.entry_port_receive.pack(side=tk.LEFT, padx=5)
-        self.entry_port_receive.insert(0, "12345")
+        self.entry_port_receive.insert(0, default_port)
 
         frame_protocol_threads = tk.Frame(root)
         frame_protocol_threads.pack(pady=10)
 
         label_protocol = tk.Label(frame_protocol_threads, text="选择协议:")
         label_protocol.pack(side=tk.LEFT)
-        self.protocol_var = tk.StringVar(value="TCP_multiThread")
+        self.protocol_var = tk.StringVar(value=default_protol)
         protocol_menu = ttk.Combobox(frame_protocol_threads, textvariable=self.protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
         protocol_menu.pack(side=tk.LEFT, padx=5)
 

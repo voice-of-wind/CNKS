@@ -9,6 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageTk
 from tkinter import messagebox
 
+
+# ["TCP", "UDP", "TCP_multiThread"]
+THREADS = 3
+default_protol = "TCP_multiThread"
+default_host = "127.0.0.1"
+default_port = "12345"
+
 # 规定一个标识符用来区分发送文件的开头
 beginImgF = b"#####*****img#####*****"
 beginAudioF = b"#####*****audio#####*****"
@@ -21,7 +28,7 @@ splitF = b"#####-----#####"
 endF = b"#####*****end_of_file*****#####"
 allEnd = b"#####*****all_end*****#####"
 fileTypes = ["img", "audio", "video", "file", "office", "zip"]
-THREADS = 3
+
 class FileSender:
     def __init__(self):
         self.THREADS = 6
@@ -30,6 +37,10 @@ class FileSender:
         self.start_time = 0
         self.is_oky = 0
         self.flag_lock = threading.Lock()
+        self.lock = threading.Lock()
+        self.sent_size = 0
+        self.start_time = 0
+        self.speed = 0
 
     def set_is_oky(self, value):
         with self.flag_lock:
@@ -58,7 +69,7 @@ class FileSender:
     def send_file_tcp(self, file_paths, host, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
-            buffer_size = 1024*8 *2# 缓冲区大小
+            buffer_size = 1024*8 *4# 缓冲区大小
             # 遍历文��列表 依次发送文件
             for file_path in file_paths:
                 file_name = os.path.basename(file_path)
@@ -99,7 +110,7 @@ class FileSender:
         buffer_size1 = 1024*4*8  # 缓冲区大小
         # buffer_size1 = 1000  # 缓冲区大小
 
-        #  如果使用滑动串口就是设置一个缓冲区 一个滑动串口
+        #  如果使用滑动串口��是设置一个缓冲区 一个滑动串口
 
 
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -188,7 +199,10 @@ class FileSender:
                     s.sendall(data)
                     start += chunk_size
                     # 更新进度和速率显示
-                    self.sent_size += len(chunk)
+                    with self.lock:
+                        self.sent_size += len(chunk)
+
+                    # 这里的传输速率
                     progress = (self.sent_size / file_size) * 100
                     elapsed_time = time.time() - self.start_time
                     speed = 0
@@ -202,11 +216,11 @@ class FileSender:
                 self.set_is_oky(1)
 
             while self.is_oky < thread_num:
-                pass
+                time.sleep(0.1)
             print(f"文件{file_id}发送完成")
             self.ui.progress_var.set(100)
             self.ui.progress_label.config(text="100%")
-            self.ui.root.after(100, self.update_progress, progress, speed)
+            self.ui.root.after(100, self.update_progress, 100, self.speed)
 
     def update_progress(self, progress, speed):
         """更新进度和速度显示"""
@@ -214,12 +228,24 @@ class FileSender:
         self.ui.progress_label.config(text=f"{progress:.2f}%")
         self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
 
+    def update_speed(self):
+        while True:
+            with self.lock:
+                elapsed_time = time.time() - self.start_time
+                if elapsed_time > 0:
+                    self.speed = self.sent_size / elapsed_time / 1024  # KB/s
+                else:
+                    self.speed = 0
+            time.sleep(1)
+
     def send_chunk_end(self, host, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
             s.sendall(b"###AllEnd###")
 
     def send_file_tcp_multithread(self, file_paths, host, port, num_threads=THREADS):
+        # speed_thread = threading.Thread(target=self.update_speed, daemon=True)
+        # speed_thread.start()
         for index in range(len(file_paths) + 1):
             if index == len(file_paths):
                 threads = []
@@ -305,20 +331,20 @@ class FileSenderUI:
         label_host.pack(side=tk.LEFT)
         self.entry_host = tk.Entry(frame_host_port, width=20)
         self.entry_host.pack(side=tk.LEFT, padx=5)
-        self.entry_host.insert(0, "127.0.0.1")
+        self.entry_host.insert(0, default_host)
 
         label_port = tk.Label(frame_host_port, text="端口号:")
         label_port.pack(side=tk.LEFT)
         self.entry_port = tk.Entry(frame_host_port, width=10)
         self.entry_port.pack(side=tk.LEFT, padx=5)
-        self.entry_port.insert(0, "12345")
+        self.entry_port.insert(0, default_port)
 
         frame_protocol_send = tk.Frame(root)
         frame_protocol_send.pack(pady=10)
 
         label_protocol = tk.Label(frame_protocol_send, text="选择协议:")
         label_protocol.pack(side=tk.LEFT)
-        self.protocol_var = tk.StringVar(value="TCP_multiThread")
+        self.protocol_var = tk.StringVar(value=default_protol)
         protocol_menu = ttk.Combobox(frame_protocol_send, textvariable=self.protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
         protocol_menu.pack(side=tk.LEFT, padx=5)
 

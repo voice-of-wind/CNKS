@@ -9,21 +9,20 @@ def plot_speed_vs_threads():
     speeds = []
     with open("speed.txt", "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line:
+            try:
+                speed, thread = line.strip().split(',')
+                speeds.append(float(speed.split()[0]))
+                threads.append(int(thread.split()[0]))
+            except:
                 continue
-            speed_part, thread_part = line.split(",")
-            speed_val = float(speed_part.replace("KB/s", "").strip())
-            thread_val = int(thread_part.replace("threads", "").strip())
-            speeds.append(speed_val)
-            threads.append(thread_val)
 
     plt.figure()
     plt.plot(threads, speeds, marker='o')
-    plt.title("线程数与传输速率折线图")
-    plt.xlabel("线程数")
-    plt.ylabel("传输速率 (KB/s)")
+    plt.title('传输速度 vs 线程数量')
+    plt.xlabel('线程数量')
+    plt.ylabel('传输速度 (KB/s)')
     plt.grid(True)
+    plt.savefig('speed_vs_threads.png')
     plt.show()
 
 plot_speed_vs_threads()
