@@ -47,7 +47,7 @@ class FileSender:
             return beginVideoF
         elif file_extension in ['.txt']:
             return beginF
-        elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+        elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx','.pdf']:
             return beginOfficeF
         elif file_extension in ['.zip', '.rar', '.7z']:
             return beginZipF
@@ -91,8 +91,8 @@ class FileSender:
                 print(f"{file_name} 文件发送完成")
 
     def send_file_udp(self, file_paths, host, port):
-        # buffer_size1 = 1024*4*8  # 缓冲区大小
-        buffer_size1 = 1000  # 缓冲区大小
+        buffer_size1 = 1024*4*8  # 缓冲区大小
+        # buffer_size1 = 1000  # 缓冲区大小
 
         #  如果使用滑动串口就是设置一个缓冲区 一个滑动串口
 
@@ -164,7 +164,7 @@ class FileSender:
         print("本次所有文件发送完成")
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
-        buffer_size = 4 * 1024 * 16 * 8# 设置缓冲区大小
+        buffer_size = 4 * 1024 * 8# 设置缓冲区大小
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
 

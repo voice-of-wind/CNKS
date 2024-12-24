@@ -72,7 +72,7 @@ def get_file_type_str(file_path):
         return 2
     elif file_extension in ['.txt']:
         return 3
-    elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+    elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx' ,'.pdf']:
         return 4
     elif file_extension in ['.zip', '.rar', '.7z']:
         return 5
@@ -134,7 +134,7 @@ class FileReceiver:
             return 2
         elif file_extension in ['.txt']:
             return 3
-        elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+        elif file_extension in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx','.pdf']:
             return 4
         elif file_extension in ['.zip', '.rar', '.7z']:
             return 5
@@ -238,8 +238,8 @@ class FileReceiver:
         print("接收完成")
 
     def receive_file_udp(self, host, port):
-        # udpRecSize = int(1024 * 4 * 8)
-        udpRecSize = int(1000)
+        udpRecSize = int(1024 * 4 * 8)
+        # udpRecSize = int(1000)
         si = 0
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind((host, port))
@@ -331,7 +331,7 @@ class FileReceiver:
         print("接收完成")
 
     def receive_chunk(self, conn, lock, prefix):
-        buffer_size = 1024 * 4 * 16 * 8
+        buffer_size = 1024 * 4 * 8
         remote_port = conn.getpeername()[1]
         while True:
             header = conn.recv(buffer_size)
@@ -357,6 +357,10 @@ class FileReceiver:
                 chunk_start = int(chunk_start)
                 fileType = self.get_file_type_str(file_id)
                 save_path = f"../receive/{fileTypes[fileType]}/{prefix}-{file_id}"
+
+                if f"{fileTypes[fileType]}/{prefix}-{file_id}" not in self.res_file_names:
+                    self.res_file_names.append(f"{fileTypes[fileType]}/{prefix}-{file_id}")
+
                 dir_path = os.path.dirname(save_path)
                 write_size = len(chunk)
                 with lock:
@@ -512,6 +516,12 @@ class FileReceiver:
     def clear_files(self):
         self.res_file_names = []
         self.res_save_paths = []
+        self.img_files = []
+        self.audio_files = []
+        self.video_files = []
+        self.office_files = []
+        self.text_files = []
+        self.zip_files = []
         self.ui.listbox_file_display.delete(0, tk.END)
         self.ui.listbox_received_files.delete(0, tk.END)
         messagebox.showinfo("清空完成", f"文件列表清空完成")
