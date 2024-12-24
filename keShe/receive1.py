@@ -488,7 +488,11 @@ class FileReceiver:
 
     def start_receiving(self):
         host = self.ui.entry_host_receive.get()
-        port = int(self.ui.entry_port_receive.get())
+        port_text = self.ui.entry_port_receive.get()
+        if not host or not port_text:
+            messagebox.showerror("错误", "请检查主机地址和端口号！")
+            return
+        port = int(port_text)
         protocol = self.ui.protocol_var.get()
 
         if protocol == "TCP":
@@ -522,15 +526,17 @@ class FileReceiver:
         for file in file_list:
             self.ui.listbox_file_display.insert(tk.END, file)
 
-    def clear_files(self):
+    def clear_files(self, fileRec):
         self.res_file_names = []
         self.res_save_paths = []
-        self.img_files = []
-        self.audio_files = []
-        self.video_files = []
-        self.office_files = []
-        self.text_files = []
-        self.zip_files = []
+
+        fileRec.img_files = []
+        fileRec.audio_files = []
+        fileRec.video_files = []
+        fileRec.office_files = []
+        fileRec.text_files = []
+        fileRec.zip_files = []
+
         self.ui.listbox_file_display.delete(0, tk.END)
         self.ui.listbox_received_files.delete(0, tk.END)
         messagebox.showinfo("清空完成", f"文件列表清空完成")
@@ -623,7 +629,7 @@ class FileReceiverUI:
         button_download.pack(side=tk.LEFT, padx=10)
 
         # 清空文件列表按钮
-        button_clear = tk.Button(button_frame, text="清空文件列表", command=self.file_receiver.clear_files)
+        button_clear = tk.Button(button_frame, text="清空文件列表", command=lambda: self.file_receiver.clear_files(self))
         button_clear.pack(side=tk.LEFT, padx=10)
 
 

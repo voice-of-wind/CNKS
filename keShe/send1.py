@@ -7,6 +7,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageTk
+from tkinter import messagebox
 
 # 规定一个标识符用来区分发送文件的开头
 beginImgF = b"#####*****img#####*****"
@@ -254,7 +255,11 @@ class FileSender:
     def send_files(self):
         file_paths = self.ui.listbox_files.get(0, tk.END)
         host = self.ui.entry_host.get()
-        port = int(self.ui.entry_port.get())
+        port_text = self.ui.entry_port.get()
+        if not host or not port_text or not file_paths:
+            messagebox.showerror("错误", "请检查主机地址、端口号以及文件列表！")
+            return
+        port = int(port_text)
         protocol = self.ui.protocol_var.get()
         if protocol == "TCP":
             self.send_file_tcp(file_paths, host, port)

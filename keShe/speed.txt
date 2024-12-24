@@ -1,17 +1,18 @@
 64901.48 KB/s, 1 threads
-68034.60 KB/s, 5 threads
-59769.35 KB/s, 16 threads
-60324.86 KB/s, 10 threads
-56768.44 KB/s, 8 threads
-79333.66 KB/s, 5 threads
+65339.24 KB/s, 3 threads
 63303.18 KB/s, 4 threads
+79333.66 KB/s, 5 threads
 52728.53 KB/s, 7 threads
+56768.44 KB/s, 8 threads
+60324.86 KB/s, 10 threads
+59769.35 KB/s, 16 threads
 
-51339.24 KB/s, 3 threads
-4679.93 KB/s, 3 threads
-0.00 KB/s, 6 threads
-13350.99 KB/s, 6 threads
-22598.77 KB/s, 6 threads
-4978.00 KB/s, 3 threads
-12754.37 KB/s, 6 threads
-21509.03 KB/s, 6 threads
+
+
+
+
+4376.35 KB/s, 3 threads
+0.00 KB/s, 3 threads
+20837.56 KB/s, 6 threads
+18247.69 KB/s, 6 threads
+13151.23 KB/s, 6 threads
