@@ -20,7 +20,7 @@ splitF = b"#####-----#####"
 endF = b"#####*****end_of_file*****#####"
 allEnd = b"#####*****all_end*****#####"
 fileTypes = ["img", "audio", "video", "file", "office", "zip"]
-THREADS = 6
+THREADS = 3
 class FileSender:
     def __init__(self):
         self.THREADS = 6
@@ -91,7 +91,12 @@ class FileSender:
                 print(f"{file_name} 文件发送完成")
 
     def send_file_udp(self, file_paths, host, port):
-        buffer_size1 = 1024*4*8  # 缓冲区大小
+        # buffer_size1 = 1024*4*8  # 缓冲区大小
+        buffer_size1 = 1000  # 缓冲区大小
+
+        #  如果使用滑动串口就是设置一个缓冲区 一个滑动串口
+
+
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
 
             # 遍历文件列表 依次发送文件
@@ -159,7 +164,7 @@ class FileSender:
         print("本次所有文件发送完成")
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
-        buffer_size = 4 * 1024 * 16 * 2# 设置缓冲区大小
+        buffer_size = 4 * 1024 * 16 * 8# 设置缓冲区大小
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
 
@@ -292,7 +297,7 @@ class FileSenderUI:
 
         label_protocol = tk.Label(frame_protocol_send, text="选择协议:")
         label_protocol.pack(side=tk.LEFT)
-        self.protocol_var = tk.StringVar(value="UDP")
+        self.protocol_var = tk.StringVar(value="TCP_multiThread")
         protocol_menu = ttk.Combobox(frame_protocol_send, textvariable=self.protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
         protocol_menu.pack(side=tk.LEFT, padx=5)
 

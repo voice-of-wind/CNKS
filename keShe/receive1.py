@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 # 5.修改进度udp 和 tcp 单线程百分比不准的问题
 # 6.测试其他类型文件是否可以传输
 
-THREADS = 6
+THREADS = 3
 
 
 # region规定一个标识符用来区分发送文件的开头
@@ -94,6 +94,16 @@ class FileReceiver:
         self.start_time1 = 0
         self.file_size1 = 0
 
+        self.finish_event = threading.Event()
+
+        # 用来计算文件的传输速度
+        self.cal_file_size = 0
+        self.file_start_time = 0
+        self.file_end_time = 0
+
+        # 记录多个文件的大小
+        self.file_sizes = []
+
     def set_endflag(self, value):
         with self.flag_lock:
             self.endflag = value
@@ -142,6 +152,7 @@ class FileReceiver:
             vaildData = ""
             remainData = False
 
+            self.file_start_time = time.time()
             with conn:
                 while True:
                     if not remainData:
@@ -171,6 +182,9 @@ class FileReceiver:
                             self.res_save_paths.append(save_path)
 
                         file_size = int(datas[2].decode('utf-8'))
+
+                        self.file_sizes.append(file_size)
+
                         fileData = datas[3]
                         dir_path = os.path.dirname(save_path)
                         if not os.path.exists(dir_path):
@@ -220,18 +234,27 @@ class FileReceiver:
                         print(f"{file_name} 文件接收完成")
                     else:
                         break
+        self.finish_event.set()
         print("接收完成")
 
     def receive_file_udp(self, host, port):
-        udpRecSize = int(1024 * 4 * 8)
+        # udpRecSize = int(1024 * 4 * 8)
+        udpRecSize = int(1000)
+        si = 0
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.bind((host, port))
             print("等待连接...")
-
             while True:
                 data, addr = s.recvfrom(udpRecSize)
+
+                if si == 0:
+                    self.file_start_time = time.time()
+                    si += 1
+
                 received_size = 0
+                
                 start_time = time.time()
+
                 nowIndex = 0
                 if hashlib.md5(data[:-32] + str(nowIndex).encode('utf-8')).hexdigest().encode('utf-8') == data[-32:]:
                     s.sendto(b'ACK', addr)
@@ -259,6 +282,8 @@ class FileReceiver:
                     if save_path not in self.res_save_paths:
                         self.res_save_paths.append(save_path)
                     file_size = int(datas[2])
+                    self.file_sizes.append(file_size)
+
                     fileData = datas[3]
                     dir_path = os.path.dirname(save_path)
                     if not os.path.exists(dir_path):
@@ -302,10 +327,11 @@ class FileReceiver:
                 else:
                     print("未识别的文件类型")
                     break
+        self.finish_event.set()
         print("接收完成")
 
     def receive_chunk(self, conn, lock, prefix):
-        buffer_size = 1024 * 4 * 16 * 2
+        buffer_size = 1024 * 4 * 16 * 8
         remote_port = conn.getpeername()[1]
         while True:
             header = conn.recv(buffer_size)
@@ -323,11 +349,14 @@ class FileReceiver:
                     print(header)
 
                 self.file_size1 = int(file_size)
+
+                if self.file_size1 not in self.file_sizes:
+                    self.file_sizes.append(self.file_size1)
+                
                 end = int(end)
                 chunk_start = int(chunk_start)
                 fileType = self.get_file_type_str(file_id)
                 save_path = f"../receive/{fileTypes[fileType]}/{prefix}-{file_id}"
-
                 dir_path = os.path.dirname(save_path)
                 write_size = len(chunk)
                 with lock:
@@ -358,6 +387,7 @@ class FileReceiver:
     def receive_file_tcp_multithread(self, host, port, num_threads=THREADS):
         lock = threading.Lock()
         threads = []
+        si = 0
         while True:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((host, port))
@@ -369,6 +399,11 @@ class FileReceiver:
                 for i in range(num_threads):
                     conn, addr = s.accept()
                     conns.append(conn)
+
+                if si == 0:
+                    self.file_start_time = time.time()
+                    print("文件开始接收时间:", self.file_start_time)
+                    si += 1
 
                 self.start_time1 = time.time()
                 for i in range(num_threads):
@@ -390,39 +425,74 @@ class FileReceiver:
                 if self.endflag == -1:
                     print("所有文件接收完成")
                     self.set_endflag(0)
+                    self.finish_event.set()
                     return
+
+    def wait_for_completion(self):
+            # 等待子线程完成
+            self.finish_event.wait()
+            # 计算本次文件传输速度
+            self.file_end_time = time.time()
+            print("文件结束接收时间:", self.file_end_time)
+            # 计算文件传输速度
+            elapsed_time = self.file_end_time - self.file_start_time
+            if elapsed_time > 0:
+                for i in range(len(self.file_sizes)):
+                    self.cal_file_size += self.file_sizes[i]
+                print("本次传输文件大小:", self.cal_file_size)
+                speed = self.cal_file_size / elapsed_time / 1024
+            
+            # 将速度和线程数以一定格式追加写到文件中
+            with open("speed.txt", 'a') as f:
+                f.write(f"{speed:.2f} KB/s, {self.THREADS} threads\n")
+            
+            # 计算完后清空相关数据项
+            self.cal_file_size = 0
+            self.file_start_time = 0
+            self.file_end_time = 0
+            self.file_sizes.clear()
+
+
+            # 子线程完成后执行的代码
+            if self.res_file_names:
+                for i in range(len(self.res_file_names)):
+                    self.ui.listbox_received_files.insert(tk.END, self.res_file_names[i])
+                    self.ui.file_paths[self.res_file_names[i]] = self.res_file_names[i]
+                    file_type = self.get_file_type_str(self.res_file_names[i])
+                    if file_type == 0:
+                        self.ui.img_files.append(self.res_file_names[i])
+                    elif file_type == 1:
+                        self.ui.audio_files.append(self.res_file_names[i])
+                    elif file_type == 2:
+                        self.ui.video_files.append(self.res_file_names[i])
+                    elif file_type == 3:
+                        self.ui.text_files.append(self.res_file_names[i])
+                    elif file_type == 4:
+                        self.ui.office_files.append(self.res_file_names[i])
+                    elif file_type == 5:
+                        self.ui.zip_files.append(self.res_file_names[i])
+                messagebox.showinfo("接收完成", f"文件接收完成")
 
     def start_receiving(self):
         host = self.ui.entry_host_receive.get()
         port = int(self.ui.entry_port_receive.get())
         protocol = self.ui.protocol_var.get()
-        print(protocol)
+
         if protocol == "TCP":
-            threading.Thread(target=self.receive_file_tcp, args=(host, port)).start()
+            receive_thread = threading.Thread(target=self.receive_file_tcp, args=(host, port))
         elif protocol == "UDP":
-            threading.Thread(target=self.receive_file_udp, args=(host, port)).start()
+            receive_thread = threading.Thread(target=self.receive_file_udp, args=(host, port))
         elif protocol == "TCP_multiThread":
             num_threads = int(self.ui.entry_threads.get())
-            threading.Thread(target=self.receive_file_tcp_multithread, args=(host, port, num_threads)).start()
+            self.THREADS = num_threads
+            print(f"线程数{self.THREADS}")
+            receive_thread = threading.Thread(target=self.receive_file_tcp_multithread, args=(host, port, num_threads))
+        receive_thread.start()
+        threading.Thread(target=self.wait_for_completion).start()
+        # receive_thread.join()  # 等待子线程完成
 
-        if self.res_save_paths:
-            for i in range(len(self.res_save_paths)):
-                self.ui.listbox_received_files.insert(tk.END, self.res_file_names[i])
-                self.ui.file_paths[self.res_file_names[i]] = self.res_file_names[i]
-                file_type = self.get_file_type_str(self.res_file_names[i])
-                if file_type == 0:
-                    self.ui.img_files.append(self.res_file_names[i])
-                elif file_type == 1:
-                    self.ui.audio_files.append(self.res_file_names[i])
-                elif file_type == 2:
-                    self.ui.video_files.append(self.res_file_names[i])
-                elif file_type == 3:
-                    self.ui.text_files.append(self.res_file_names[i])
-                elif file_type == 4:
-                    self.ui.office_files.append(self.res_file_names[i])
-                elif file_type == 5:
-                    self.ui.zip_files.append(self.res_file_names[i])
-            messagebox.showinfo("接收完成", f"文件接收完成")
+
+
 
     def download_file(self):
         selected_file = self.ui.listbox_received_files.get(tk.ACTIVE)
@@ -438,6 +508,13 @@ class FileReceiver:
         self.ui.listbox_file_display.delete(0, tk.END)
         for file in file_list:
             self.ui.listbox_file_display.insert(tk.END, file)
+
+    def clear_files(self):
+        self.res_file_names = []
+        self.res_save_paths = []
+        self.ui.listbox_file_display.delete(0, tk.END)
+        self.ui.listbox_received_files.delete(0, tk.END)
+        messagebox.showinfo("清空完成", f"文件列表清空完成")
 
 class FileReceiverUI:
     def __init__(self, root, file_receiver):
@@ -474,7 +551,7 @@ class FileReceiverUI:
 
         label_protocol = tk.Label(frame_protocol_threads, text="选择协议:")
         label_protocol.pack(side=tk.LEFT)
-        self.protocol_var = tk.StringVar(value="UDP")
+        self.protocol_var = tk.StringVar(value="TCP_multiThread")
         protocol_menu = ttk.Combobox(frame_protocol_threads, textvariable=self.protocol_var, values=["TCP", "UDP", "TCP_multiThread"], state="readonly")
         protocol_menu.pack(side=tk.LEFT, padx=5)
 
@@ -518,8 +595,18 @@ class FileReceiverUI:
         button_show_zip = tk.Button(frame_buttons, text="压缩文件", command=lambda: self.file_receiver.show_files(self.zip_files))
         button_show_zip.pack(side=tk.LEFT, padx=5)
 
-        button_download = tk.Button(root, text="下载选中文件", command=self.file_receiver.download_file)
-        button_download.pack(pady=20)
+        # 创建一个框架来容纳按钮
+        button_frame = tk.Frame(root)
+        button_frame.pack(pady=20)
+
+        # 下载选中文件按钮
+        button_download = tk.Button(button_frame, text="下载选中文件", command=self.file_receiver.download_file)
+        button_download.pack(side=tk.LEFT, padx=10)
+
+        # 清空文件列表按钮
+        button_clear = tk.Button(button_frame, text="清空文件列表", command=self.file_receiver.clear_files)
+        button_clear.pack(side=tk.LEFT, padx=10)
+
 
         frame_progress = tk.Frame(root)
         frame_progress.pack(pady=10)

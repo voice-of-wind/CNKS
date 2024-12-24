@@ -1,0 +1,9 @@
+64901.48 KB/s, 1 threads
+68034.60 KB/s, 5 threads
+59769.35 KB/s, 16 threads
+60324.86 KB/s, 10 threads
+56768.44 KB/s, 8 threads
+79333.66 KB/s, 5 threads
+63303.18 KB/s, 4 threads
+52728.53 KB/s, 7 threads
+
