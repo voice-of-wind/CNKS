@@ -232,6 +232,9 @@ class FileReceiver:
                                     self.ui.speed_label.config(text=f"接收速率: {speed:.2f} KB/s")
                                     root.update_idletasks()
                         print(f"{file_name} 文件接收完成")
+                        self.ui.progress_var.set(100)
+                        self.ui.progress_label.config(text="100%")
+                        root.update_idletasks()
                     else:
                         break
         self.finish_event.set()
@@ -324,6 +327,9 @@ class FileReceiver:
                                 f.write(data)
 
                     print(f"{file_name} 文件接收完成")
+                    self.ui.progress_var.set(100)
+                    self.ui.progress_label.config(text="100%")
+                    root.update_idletasks()
                 else:
                     print("未识别的文件类型")
                     break
@@ -386,6 +392,9 @@ class FileReceiver:
                 if chunk_start + write_size == end:
                     conn.send(b'ACK')
                     print(f"发送ACK到端口{remote_port}")
+                    self.ui.progress_var.set(100)
+                    self.ui.progress_label.config(text="100%")
+                    root.update_idletasks()
                     break
 
     def receive_file_tcp_multithread(self, host, port, num_threads=THREADS):

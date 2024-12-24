@@ -89,6 +89,9 @@ class FileSender:
                 s.sendall(endF)
 
                 print(f"{file_name} 文件发送完成")
+                self.ui.progress_var.set(100)
+                self.ui.progress_label.config(text="100%")
+                root.update_idletasks()
 
     def send_file_udp(self, file_paths, host, port):
         buffer_size1 = 1024*4*8  # 缓冲区大小
@@ -162,6 +165,9 @@ class FileSender:
                     break
 
         print("本次所有文件发送完成")
+        self.ui.progress_var.set(100)
+        self.ui.progress_label.config(text="100%")
+        root.update_idletasks()
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
         buffer_size = 4 * 1024 * 8# 设置缓冲区大小
@@ -183,6 +189,7 @@ class FileSender:
                     progress = (self.sent_size / file_size) * 100
                     self.ui.progress_var.set(progress)
                     elapsed_time = time.time() - self.start_time
+                    speed = 0
                     if elapsed_time > 0:
                         speed = self.sent_size / elapsed_time / 1024  # KB/s
                     self.ui.speed_label.config(text=f"传输速率: {speed:.2f} KB/s")
@@ -197,6 +204,9 @@ class FileSender:
             while self.is_oky < thread_num:
                 pass
             print(f"文件{file_id}发送完成")
+            self.ui.progress_var.set(100)
+            self.ui.progress_label.config(text="100%")
+            root.update_idletasks()
 
     def send_chunk_end(self, host, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
