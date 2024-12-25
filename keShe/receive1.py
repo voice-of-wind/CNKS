@@ -370,19 +370,15 @@ class FileReceiver:
 
                 dir_path = os.path.dirname(save_path)
                 write_size = len(chunk)
+
                 with lock:
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
-                    if not os.path.exists(save_path):
-                        with open(save_path, 'wb') as f:
-                            pass
-                    with open(save_path, 'r+b') as f:
+                    with open(save_path, 'r+b' if os.path.exists(save_path) else 'wb') as f:
                         f.seek(chunk_start)
-                        f.write(chunk)
 
-                with self.lock:
-                    self.received_size += write_size
-
+                self.received_size += write_size
+                # progress 是当前接收的百分比
                 progress = (self.received_size / self.file_size1) * 100
                 self.ui.root.after(100, self.update_progress, progress, self.speed)
 
@@ -520,8 +516,6 @@ class FileReceiver:
         receive_thread.start()
         threading.Thread(target=self.wait_for_completion).start()
         # receive_thread.join()  # 等��子线程完成
-
-
 
 
     def download_file(self):
