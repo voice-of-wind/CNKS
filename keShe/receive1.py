@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 # ["TCP", "UDP", "TCP_multiThread"]
 # 三种传输方式的基本buffer_size = 4*1024*8
 
-THREADS = 3
+THREADS = 1
 default_protol = "TCP_multiThread"
 default_host = "127.0.0.1"
 default_port = "12345"
@@ -113,6 +113,7 @@ class FileReceiver:
         self.received_size = 0
         self.start_time = time.time()
         self.speed = 0
+        self.stop_flag = False  # 新增停止标志
 
     def set_endflag(self, value):
         with self.flag_lock:
@@ -167,6 +168,10 @@ class FileReceiver:
             self.file_start_time = time.time()
             with conn:
                 while True:
+                    if self.stop_flag:
+                        print("停止接收")
+                        self.stop_flag = False
+                        break
                     if not remainData:
                         data = conn.recv(buffer_size)
                         remainData = False
@@ -254,6 +259,10 @@ class FileReceiver:
             s.bind((host, port))
             print("等待连接...")
             while True:
+                if self.stop_flag:
+                    print("停止接收")
+                    self.stop_flag = False
+                    break
                 data, addr = s.recvfrom(udpRecSize)
 
                 if si == 0:
@@ -347,7 +356,7 @@ class FileReceiver:
     import threading
 
     def receive_chunk(self, conn, lock, prefix):
-        buffer_size = 1024 * 8 * 8  # 64KB 缓冲区大小
+        buffer_size = 1024 * 8 * 4  # 64KB 缓冲区大小
         remote_port = conn.getpeername()[1]
 
         # 用一个字典缓存每个文件的锁和写入位置
@@ -355,6 +364,10 @@ class FileReceiver:
         file_cache = {}
 
         while True:
+            if self.stop_flag:
+                print("停止接收")
+                self.stop_flag = False
+                break
             header = conn.recv(buffer_size)
             if header == b'':
                 break
@@ -429,6 +442,11 @@ class FileReceiver:
         threads = []
         si = 0
         while True:
+            if self.stop_flag:
+                print("停止接收")
+                self.set_endflag(0)
+                self.stop_flag = False
+                break
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((host, port))
                 s.listen()
@@ -551,6 +569,22 @@ class FileReceiver:
         threading.Thread(target=self.wait_for_completion).start()
         # receive_thread.join()  # 等��子线程完成
 
+    def terminate(self):
+        self.stop_flag = True
+        self.reset_state()
+
+    def reset_state(self):
+        self.stop_flag = False
+        self.received_size = 0
+        self.start_time = 0
+        self.speed = 0
+        self.res_file_names.clear()
+        self.res_save_paths.clear()
+        self.ui.listbox_received_files.delete(0, tk.END)
+        self.ui.listbox_file_display.delete(0, tk.END)
+        self.ui.progress_var.set(0)
+        self.ui.progress_label.config(text="0%")
+        self.ui.speed_label.config(text="接收速率: 0 KB/s")
 
     def download_file(self):
         selected_file = self.ui.listbox_received_files.get(tk.ACTIVE)
@@ -634,6 +668,10 @@ class FileReceiverUI:
 
         button_receive = tk.Button(frame_protocol_threads, text="开始接收", command=self.file_receiver.start_receiving)
         button_receive.pack(side=tk.LEFT, padx=5)
+
+        # 新增停止按钮
+        button_stop = tk.Button(frame_protocol_threads, text="终止", command=self.file_receiver.terminate)
+        button_stop.pack(side=tk.LEFT, padx=5)
 
         frame_received_files = tk.Frame(root)
         frame_received_files.pack(pady=10)

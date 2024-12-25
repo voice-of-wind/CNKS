@@ -11,7 +11,7 @@ from tkinter import messagebox
 
 
 # ["TCP", "UDP", "TCP_multiThread"]
-THREADS = 3
+THREADS = 1
 default_protol = "TCP_multiThread"
 default_host = "127.0.0.1"
 default_port = "12345"
@@ -41,6 +41,22 @@ class FileSender:
         self.sent_size = 0
         self.start_time = 0
         self.speed = 0
+        self.stop_flag = False  # 新增停止标志
+
+    def terminate(self):
+        self.stop_flag = True
+        self.reset_state()
+
+    def reset_state(self):
+        self.stop_flag = False
+        self.sent_size = 0
+        self.start_time = 0
+        self.is_oky = 0
+        self.speed = 0
+        self.ui.progress_var.set(0)
+        self.ui.progress_label.config(text="0%")
+        self.ui.speed_label.config(text="传输速率: 0 KB/s")
+        self.ui.listbox_files.delete(0, tk.END)
 
     def set_is_oky(self, value):
         with self.flag_lock:
@@ -72,6 +88,9 @@ class FileSender:
             buffer_size = 1024*8 *4# 缓冲区大小
             # 遍历文��列表 依次发送文件
             for file_path in file_paths:
+                if self.stop_flag:
+                    print("当前发送已被终止")
+                    break
                 file_name = os.path.basename(file_path)
                 file_size = os.path.getsize(file_path)
                 # 发送文件标识符
@@ -117,6 +136,9 @@ class FileSender:
 
             # 遍历文件列表 依次发送文件
             for file_path in file_paths:
+                if self.stop_flag:
+                    print("当前发送已被终止")
+                    break
                 file_name = os.path.basename(file_path)
                 file_size = os.path.getsize(file_path)
                 sent_size = 0
@@ -184,13 +206,16 @@ class FileSender:
         self.ui.root.after(100, self.update_progress, progress, speed)
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
-        buffer_size = 8 * 1024 * 8# 设置缓冲区大小
+        buffer_size = 8 * 1024 * 4# 设置缓冲区大小
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
 
             with open(file_path, 'rb') as f:
                 f.seek(start)
                 while start < end:
+                    if self.stop_flag:
+                        print("当前发送已被终止")
+                        break
                     headers = f"{file_id}:{end}:{start}:{file_size}".encode('utf-8')
                     chunk_size = min(buffer_size-len(headers)-len(b'::'), end - start)  # 计算每次发送的块大小
                     chunk = f.read(chunk_size)
@@ -216,7 +241,7 @@ class FileSender:
                 self.set_is_oky(1)
 
             while self.is_oky < thread_num:
-                time.sleep(0.1)
+                time.sleep(0.01)
             print(f"文件{file_id}发送完成")
             self.ui.progress_var.set(100)
             self.ui.progress_label.config(text="100%")
@@ -257,6 +282,12 @@ class FileSender:
                     thread.join()
                 print("本次所有文件发送完成")
             else:
+                if self.stop_flag:
+                    threads = []
+                    self.sent_size = 0
+                    self.set_is_oky(0)
+                    print("当前发送已被终止")
+                    break
                 file_path = file_paths[index]
                 file_size = os.path.getsize(file_path)
                 chunk_size = file_size // num_threads
@@ -350,6 +381,10 @@ class FileSenderUI:
 
         button_send = tk.Button(frame_protocol_send, text="发送", command=self.file_sender.send_files)
         button_send.pack(side=tk.LEFT, padx=5)
+
+        # 新增停止按钮
+        button_stop = tk.Button(frame_protocol_send, text="终止", command=self.file_sender.terminate)
+        button_stop.pack(side=tk.LEFT, padx=5)
 
         frame_progress = tk.Frame(root)
         frame_progress.pack(pady=10)
