@@ -390,7 +390,17 @@ class FileSenderUI:
         frame_progress.pack(pady=10)
 
         self.progress_var = tk.DoubleVar()
-        progress_bar = ttk.Progressbar(frame_progress, variable=self.progress_var, maximum=100)
+        
+        # 设置统一的进度条样式
+        style = ttk.Style()
+        style.configure("green.Horizontal.TProgressbar", 
+                       background='green',
+                       troughcolor='#D3D3D3')
+        
+        progress_bar = ttk.Progressbar(frame_progress, 
+                                       variable=self.progress_var,
+                                       maximum=100,
+                                       style="green.Horizontal.TProgressbar")
         progress_bar.pack(side=tk.LEFT, padx=5)
 
         self.progress_label = tk.Label(frame_progress, text="0%")

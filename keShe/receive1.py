@@ -546,8 +546,10 @@ class FileReceiver:
 
             # 清除事件状态，重新进入等待
             self.finish_event.clear()
+            self.ui.button_receive.config(state=tk.NORMAL)  # 传输完成后重新启用按钮
 
     def start_receiving(self):
+        self.ui.button_receive.config(state=tk.DISABLED)  # 禁用按钮
         host = self.ui.entry_host_receive.get()
         port_text = self.ui.entry_port_receive.get()
         if not host or not port_text:
@@ -668,6 +670,9 @@ class FileReceiverUI:
 
         button_receive = tk.Button(frame_protocol_threads, text="开始接收", command=self.file_receiver.start_receiving)
         button_receive.pack(side=tk.LEFT, padx=5)
+
+        # 禁用接收按钮的引用
+        self.button_receive = button_receive
 
         # 新增停止按钮
         button_stop = tk.Button(frame_protocol_threads, text="终止", command=self.file_receiver.terminate)
