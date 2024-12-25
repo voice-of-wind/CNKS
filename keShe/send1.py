@@ -184,7 +184,7 @@ class FileSender:
         self.ui.root.after(100, self.update_progress, progress, speed)
 
     def send_chunk(self, file_path, host, port, start, end, thread_num, file_id, file_size):
-        buffer_size = 4 * 1024 * 8# 设置缓冲区大小
+        buffer_size = 8 * 1024 * 8# 设置缓冲区大小
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((host, port))
 

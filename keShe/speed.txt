@@ -1,0 +1,3 @@
+179218.20 KB/s, 3 threads
+185711.65 KB/s, 3 threads
+54279.72 KB/s, 3 threads

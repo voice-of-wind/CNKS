@@ -1,7 +1,8 @@
 import os
 
-file1 = "../receive/img/2.png"
-file2 = "../res/2.png"
+file1 = "D:/a_project/Python/2.mp4"
+file2 = "../receive/video/2.mp4"
+
 
 size1 = os.path.getsize(file1)
 size2 = os.path.getsize(file2)

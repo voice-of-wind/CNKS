@@ -337,9 +337,23 @@ class FileReceiver:
         self.finish_event.set()
         print("接收完成")
 
+    import os
+    import threading
+
+    import os
+    import threading
+
+    import os
+    import threading
+
     def receive_chunk(self, conn, lock, prefix):
-        buffer_size = 1024 * 4 * 8
+        buffer_size = 1024 * 8 * 8  # 64KB 缓冲区大小
         remote_port = conn.getpeername()[1]
+
+        # 用一个字典缓存每个文件的锁和写入位置
+        file_locks = {}
+        file_cache = {}
+
         while True:
             header = conn.recv(buffer_size)
             if header == b'':
@@ -351,15 +365,16 @@ class FileReceiver:
                 header, chunk = header.split(b"::", 1)
                 try:
                     file_id, end, chunk_start, file_size = header.decode('utf-8').split(':')
-                except:
-                    print("解码错误")
+                except Exception as e:
+                    print("解码错误:", e)
                     print(header)
+                    continue  # 解码错误跳过此块数据
 
                 self.file_size1 = int(file_size)
 
                 if self.file_size1 not in self.file_sizes:
                     self.file_sizes.append(self.file_size1)
-                
+
                 end = int(end)
                 chunk_start = int(chunk_start)
                 fileType = self.get_file_type_str(file_id)
@@ -371,14 +386,29 @@ class FileReceiver:
                 dir_path = os.path.dirname(save_path)
                 write_size = len(chunk)
 
+                # 锁只用于目录创建，减少锁争用
                 with lock:
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
-                    with open(save_path, 'r+b' if os.path.exists(save_path) else 'wb') as f:
-                        f.seek(chunk_start)
+
+                    # 使用缓存文件句柄，减少频繁打开和关闭文件
+                    if save_path not in file_cache:
+                        # 如果文件没有被缓存，打开文件并缓存句柄
+                        file_mode = 'r+b' if os.path.exists(save_path) else 'wb'
+                        file_cache[save_path] = open(save_path, file_mode)
+
+                        # 为每个文件创建独立的锁
+                        file_locks[save_path] = threading.Lock()
+
+                # 使用文件级锁来保护文件写入
+                with file_locks[save_path]:
+                    file = file_cache[save_path]
+                    file.seek(chunk_start)
+                    file.write(chunk)
 
                 self.received_size += write_size
-                # progress 是当前接收的百分比
+
+                # 更新进度
                 progress = (self.received_size / self.file_size1) * 100
                 self.ui.root.after(100, self.update_progress, progress, self.speed)
 
@@ -387,6 +417,10 @@ class FileReceiver:
                     print(f"发送ACK到端口{remote_port}")
                     self.ui.root.after(100, self.update_progress, 100, self.speed)
                     break
+
+        # 完成接收后，关闭缓存的文件句柄
+        for file in file_cache.values():
+            file.close()
 
     def receive_file_tcp_multithread(self, host, port, num_threads=THREADS):
         speed_thread = threading.Thread(target=self.update_speed, daemon=True)
