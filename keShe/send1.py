@@ -11,7 +11,7 @@ from tkinter import messagebox
 
 
 # ["TCP", "UDP", "TCP_multiThread"]
-THREADS = 1
+THREADS = 3
 default_protol = "TCP_multiThread"
 default_host = "127.0.0.1"
 default_port = "12345"

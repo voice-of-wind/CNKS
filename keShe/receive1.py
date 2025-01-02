@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
 # ["TCP", "UDP", "TCP_multiThread"]
 # 三种传输方式的基本buffer_size = 4*1024*8
 
-THREADS = 1
+THREADS = 3
 default_protol = "TCP_multiThread"
 default_host = "127.0.0.1"
 default_port = "12345"
