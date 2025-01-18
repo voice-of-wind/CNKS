@@ -6,8 +6,7 @@ import uuid
 import hashlib
 import time
 import threading
-import queue
-from concurrent.futures import ThreadPoolExecutor  # 导入ThreadPoolExecutor
+
 
 # Todo
 # 小bug使用tcp协议 小文件传输放在中间导致下一个文件接收不到

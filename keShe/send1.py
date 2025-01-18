@@ -5,8 +5,6 @@ from tkinter import filedialog, ttk
 import hashlib
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor
-from PIL import Image, ImageTk
 from tkinter import messagebox
 
 
